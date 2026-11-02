@@ -32,7 +32,9 @@ def parse_args():
 def get_history_refs(session, control_nbr):
     """
     Returns the ICR Reference Numbers listed on the OMB Control Number's history page
-    (PRAOMBHistory), newest first, as reginfo.gov lists them.
+    (PRAOMBHistory), newest first, as reginfo.gov lists them, plus the Common Form (RCF)
+    reference numbers on that page. RCF rows are other agencies' uses of a common form;
+    they link to PRAViewRCF rather than PRAViewICR and are not downloaded.
     """
     hist_url = f"{BASE_URL}/public/do/PRAOMBHistory?ombControlNumber={control_nbr}"
     resp = session.get(hist_url, timeout=15)
@@ -41,7 +43,11 @@ def get_history_refs(session, control_nbr):
     for ref in re.findall(r'PRAViewICR\?ref_nbr=(\d{6}-\d{4}-\d{3})', resp.text):
         if ref not in refs:
             refs.append(ref)
-    return refs
+    rcf_refs = []
+    for ref in re.findall(r'PRAViewRCF\?ref_nbr=([^"\'&\s<>]+)', resp.text):
+        if ref not in rcf_refs:
+            rcf_refs.append(ref)
+    return refs, rcf_refs
 
 def extract_download_urls(soup, base_url):
     """
@@ -233,13 +239,15 @@ def main():
         control_nbr = args.ref_nbr
         print(f"\n[*] Looking up the ICR history for OMB Control Number {control_nbr}...")
         try:
-            refs = get_history_refs(session, control_nbr)
+            refs, rcf_refs = get_history_refs(session, control_nbr)
         except requests.exceptions.RequestException as e:
             print(f"[!] Critical Error loading the history page: {e}")
             sys.exit(1)
         if not refs:
             print(f"[!] No ICRs found in the history for {control_nbr}.")
             sys.exit(1)
+        if rcf_refs:
+            print(f"[*] Skipping {len(rcf_refs)} Common Form (RCF) entries in the history. These are other agencies' uses of this common form; download one with its RCF reference number if you need it.")
         print(f"[*] Found {len(refs)} ICRs in the history. Downloading each into {control_nbr}/<ICR Reference Number>/ ...")
         for idx, ref in enumerate(refs, 1):
             print(f"\n[*] ICR {idx}/{len(refs)}: {ref}")
